@@ -1,1 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS MySQL Database Stack
 
+Parameters:
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+
+  DatabaseName:
+    Type: String
+    Default: appdb
+
+Resources:
+
+# ====================================================
+# DB SUBNET GROUP
+# ====================================================
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+
+    Properties:
+      DBSubnetGroupDescription: Private Database Subnets
+
+      SubnetIds:
+        - Fn::ImportValue: PrivateDBSubnetAZ1
+        - Fn::ImportValue: PrivateDBSubnetAZ2
+
+      Tags:
+        - Key: Name
+          Value: mysql-db-subnet-group
+
+# ====================================================
+# MYSQL DATABASE
+# ====================================================
+
+  MySQLDatabase:
+    Type: AWS::RDS::DBInstance
+
+    Properties:
+
+      DBInstanceIdentifier: mysql-db
+
+      Engine: mysql
+
+      EngineVersion: "8.0"
+
+      DBName: !Ref DatabaseName
+
+      DBInstanceClass: !Ref DBInstanceClass
+
+      AllocatedStorage: 20
+
+      StorageType: gp3
+
+      MultiAZ: true
+
+      PubliclyAccessible: false
+
+      StorageEncrypted: true
+
+      BackupRetentionPeriod: 7
+
+      DeletionProtection: false
+
+      EnableCloudwatchLogsExports:
+        - error
+        - general
+        - slowquery
+
+      DBSubnetGroupName:
+        !Ref DBSubnetGroup
+
+      VPCSecurityGroups:
+        - Fn::ImportValue: RDSSecurityGroupId
+
+# ====================================================
+# USERNAME FROM SECRETS MANAGER
+# ====================================================
+
+      MasterUsername:
+        !Sub
+          - "{{resolve:secretsmanager:${SecretArn}:SecretString:username}}"
+          - SecretArn:
+              Fn::ImportValue: RDSMasterSecretArn
