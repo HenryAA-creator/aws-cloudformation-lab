@@ -1,1 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Security Groups Stack
 
+Resources:
+
+#---------------------------------------------------
+# ALB SECURITY GROUP
+#---------------------------------------------------
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: alb-sg
+      GroupDescription: Allow HTTP and HTTPS from Internet
+
+      VpcId:
+        Fn::ImportValue: LabVPCId
+
+      SecurityGroupIngress:
+
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+      SecurityGroupEgress:
+
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+        - Key: Name
+          Value: ALB-SG
+
+#---------------------------------------------------
+# EC2 SECURITY GROUP
+#---------------------------------------------------
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ec2-web-sg
+      GroupDescription: Allow Web Traffic From ALB
+
+      VpcId:
+        Fn::ImportValue: LabVPCId
+
+      SecurityGroupIngress:
+
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+      SecurityGroupEgress:
+
+        - 
