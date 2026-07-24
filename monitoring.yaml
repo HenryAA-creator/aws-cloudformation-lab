@@ -1,86 +1,239 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: RDS MySQL Database Stack
+Description: CloudWatch Monitoring and SNS Alerts
 
 Parameters:
 
-  DBInstanceClass:
+  NotificationEmail:
     Type: String
-    Default: db.t3.micro
-
-  DatabaseName:
-    Type: String
-    Default: appdb
+    Description: Email address to receive alerts
 
 Resources:
 
-# ====================================================
-# DB SUBNET GROUP
-# ====================================================
+# =====================================================
+# SNS TOPIC
+# =====================================================
 
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-
+  AlertTopic:
+    Type: AWS::SNS::Topic
     Properties:
-      DBSubnetGroupDescription: Private Database Subnets
+      TopicName: cloudformation-lab-alerts
 
-      SubnetIds:
-        - Fn::ImportValue: PrivateDBSubnetAZ1
-        - Fn::ImportValue: PrivateDBSubnetAZ2
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+      TopicArn: !Ref AlertTopic
 
-      Tags:
-        - Key: Name
-          Value: mysql-db-subnet-group
+# =====================================================
+# EC2 / ASG CPU ALARM
+# =====================================================
 
-# ====================================================
-# MYSQL DATABASE
-# ====================================================
-
-  MySQLDatabase:
-    Type: AWS::RDS::DBInstance
+  ASGHighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
 
     Properties:
 
-      DBInstanceIdentifier: mysql-db
+      AlarmName: ASG-High-CPU
 
-      Engine: mysql
+      AlarmDescription: Auto Scaling Group CPU above 80%
 
-      EngineVersion: "8.0"
+      Namespace: AWS/EC2
 
-      DBName: !Ref DatabaseName
+      MetricName: CPUUtilization
 
-      DBInstanceClass: !Ref DBInstanceClass
+      Statistic: Average
 
-      AllocatedStorage: 20
+      Period: 300
 
-      StorageType: gp3
+      EvaluationPeriods: 2
 
-      MultiAZ: true
+      Threshold: 80
 
-      PubliclyAccessible: false
+      ComparisonOperator: GreaterThanThreshold
 
-      StorageEncrypted: true
+      AlarmActions:
+        - !Ref AlertTopic
 
-      BackupRetentionPeriod: 7
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Fn::ImportValue: AutoScalingGroupName
 
-      DeletionProtection: false
+# =====================================================
+# RDS CPU ALARM
+# =====================================================
 
-      EnableCloudwatchLogsExports:
-        - error
-        - general
-        - slowquery
+  RDSCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
 
-      DBSubnetGroupName:
-        !Ref DBSubnetGroup
+    Properties:
 
-      VPCSecurityGroups:
-        - Fn::ImportValue: RDSSecurityGroupId
+      AlarmName: RDS-High-CPU
 
-# ====================================================
-# USERNAME FROM SECRETS MANAGER
-# ====================================================
+      Namespace: AWS/RDS
 
-      MasterUsername:
-        !Sub
-          - "{{resolve:secretsmanager:${SecretArn}:SecretString:username}}"
-          - SecretArn:
-              Fn::ImportValue: RDSMasterSecretArn
+      MetricName: CPUUtilization
+
+      Statistic: Average
+
+      Period: 300
+
+      EvaluationPeriods: 2
+
+      Threshold: 80
+
+      ComparisonOperator: GreaterThanThreshold
+
+      AlarmActions:
+        - !Ref AlertTopic
+
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: mysql-db
+
+# =====================================================
+# RDS FREE STORAGE
+# =====================================================
+
+  RDSLowStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: RDS-Low-Storage
+
+      Namespace: AWS/RDS
+
+      MetricName: FreeStorageSpace
+
+      Statistic: Average
+
+      Period: 300
+
+      EvaluationPeriods: 1
+
+      Threshold: 2147483648
+
+      ComparisonOperator: LessThanThreshold
+
+      AlarmActions:
+        - !Ref AlertTopic
+
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: mysql-db
+
+# =====================================================
+# ALB 5XX ERRORS
+# =====================================================
+
+  ALB5XXAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: ALB-5XX-Errors
+
+      Namespace: AWS/ApplicationELB
+
+      MetricName: HTTPCode_ELB_5XX_Count
+
+      Statistic: Sum
+
+      Period: 300
+
+      EvaluationPeriods: 1
+
+      Threshold: 5
+
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      AlarmActions:
+        - !Ref AlertTopic
+
+      Dimensions:
+
+        - Name: LoadBalancer
+          Value:
+            !Select
+              - 1
+              - !Split
+                - "loadbalancer/"
+                - !ImportValue ALBArn
+
+# =====================================================
+# ALB UNHEALTHY TARGETS
+# =====================================================
+
+  ALBUnhealthyHostsAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: ALB-Unhealthy-Hosts
+
+      Namespace: AWS/ApplicationELB
+
+      MetricName: UnHealthyHostCount
+
+      Statistic: Average
+
+      Period: 300
+
+      EvaluationPeriods: 1
+
+      Threshold: 1
+
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      AlarmActions:
+        - !Ref AlertTopic
+
+      Dimensions:
+
+        - Name: TargetGroup
+          Value:
+            !Select
+              - 1
+              - !Split
+                - "targetgroup/"
+                - !ImportValue TargetGroupArn
+
+# =====================================================
+# HIGH NETWORK IN
+# =====================================================
+
+  HighNetworkInAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: High-Network-In
+
+      Namespace: AWS/EC2
+
+      MetricName: NetworkIn
+
+      Statistic: Average
+
+      Period: 300
+
+      EvaluationPeriods: 2
+
+      Threshold: 100000000
+
+      ComparisonOperator: GreaterThanThreshold
+
+      AlarmActions:
+        - !Ref AlertTopic
+
+Outputs:
+
+  SNSTopicArn:
+    Description: SNS Topic ARN
+    Value: !Ref AlertTopic
+
+  NotificationEmail:
+    Description: Alert Email
+    Value: !Ref NotificationEmail
