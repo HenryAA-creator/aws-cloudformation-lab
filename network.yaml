@@ -1,1 +1,249 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC Stack for CloudFormation Lab
 
+Parameters:
+
+  VPCCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+
+Resources:
+
+#---------------------------------------------------
+# VPC
+#---------------------------------------------------
+
+  LabVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+      Tags:
+        - Key: Name
+          Value: LabVPC
+
+#---------------------------------------------------
+# INTERNET GATEWAY
+#---------------------------------------------------
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref LabVPC
+      InternetGatewayId: !Ref InternetGateway
+
+#---------------------------------------------------
+# PUBLIC SUBNETS
+#---------------------------------------------------
+
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+
+      Tags:
+        - Key: Name
+          Value: PublicSubnetAZ1
+
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+
+      Tags:
+        - Key: Name
+          Value: PublicSubnetAZ2
+
+#---------------------------------------------------
+# PRIVATE APP SUBNETS
+#---------------------------------------------------
+
+  PrivateAppSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.11.0/24
+
+      Tags:
+        - Key: Name
+          Value: PrivateAppSubnetAZ1
+
+  PrivateAppSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.12.0/24
+
+      Tags:
+        - Key: Name
+          Value: PrivateAppSubnetAZ2
+
+#---------------------------------------------------
+# PRIVATE DB SUBNETS
+#---------------------------------------------------
+
+  PrivateDBSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.21.0/24
+
+      Tags:
+        - Key: Name
+          Value: PrivateDBSubnetAZ1
+
+  PrivateDBSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.22.0/24
+
+      Tags:
+        - Key: Name
+          Value: PrivateDBSubnetAZ2
+
+#---------------------------------------------------
+# PUBLIC ROUTE TABLE
+#---------------------------------------------------
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVPC
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAZ1RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetAZ1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetAZ2RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetAZ2
+      RouteTableId: !Ref PublicRouteTable
+
+#---------------------------------------------------
+# NAT GATEWAY
+#---------------------------------------------------
+
+  NatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnetAZ1
+
+#---------------------------------------------------
+# PRIVATE ROUTE TABLE
+#---------------------------------------------------
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVPC
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+#---------------------------------------------------
+# PRIVATE APP ASSOCIATIONS
+#---------------------------------------------------
+
+  PrivateAppAZ1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetAZ1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateAppAZ2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAppSubnetAZ2
+      RouteTableId: !Ref PrivateRouteTable
+
+#---------------------------------------------------
+# PRIVATE DB ASSOCIATIONS
+#---------------------------------------------------
+
+  PrivateDBAZ1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateDBSubnetAZ1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateDBAZ2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateDBSubnetAZ2
+      RouteTableId: !Ref PrivateRouteTable
+
+Outputs:
+
+  VPCId:
+    Description: VPC ID
+    Value: !Ref LabVPC
+    Export:
+      Name: LabVPCId
+
+  PublicSubnet1:
+    Value: !Ref PublicSubnetAZ1
+    Export:
+      Name: PublicSubnetAZ1
+
+  PublicSubnet2:
+    Value: !Ref PublicSubnetAZ2
+    Export:
+      Name: PublicSubnetAZ2
+
+  PrivateAppSubnet1:
+    Value: !Ref PrivateAppSubnetAZ1
+    Export:
+      Name: PrivateAppSubnetAZ1
+
+  PrivateAppSubnet2:
+    Value: !Ref PrivateAppSubnetAZ2
+    Export:
+      Name: PrivateAppSubnetAZ2
+
+  PrivateDBSubnet1:
+    Value: !Ref PrivateDBSubnetAZ1
+    Export:
+      Name: PrivateDBSubnetAZ1
+
+  PrivateDBSubnet2:
+    Value: !Ref PrivateDBSubnetAZ2
+    Export:
+      Name: PrivateDBSubnetAZ2
