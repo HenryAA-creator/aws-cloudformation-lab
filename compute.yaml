@@ -128,7 +128,7 @@ Resources:
           - Fn::ImportValue: EC2SecurityGroupId
 
         UserData:
-          Fn::Base64: |
+                  Fn::Base64: |
             #!/bin/bash
 
             dnf update -y
